@@ -8,6 +8,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ApplicationIcon>app.ico</ApplicationIcon>
+    <Version>1.1.0</Version>
+    <Product>Ticket Timer</Product>
 
     <!-- Publish as one standalone .exe that runs without .NET installed -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

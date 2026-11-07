@@ -135,6 +135,10 @@ public class MainForm : Form
         widgetButton.Margin = Padding.Empty;
         leftButtons.Controls.Add(onTopButton);
         leftButtons.Controls.Add(widgetButton);
+        var supportButton = new RoundButton { Text = "☕ Support", AutoSize = true, Kind = ButtonKind.Text, Margin = new Padding(4, 0, 0, 0) };
+        supportButton.Click += (_, _) => ShowAbout();
+        new ToolTip().SetToolTip(supportButton, "About Ticket Timer, and how to say thanks");
+        leftButtons.Controls.Add(supportButton);
         topBar.Controls.Add(leftButtons, 0, 0);
         topBar.Controls.Add(themeSwitch, 1, 0);
 
@@ -426,6 +430,12 @@ public class MainForm : Form
         Persist();
     }
 
+    void ShowAbout()
+    {
+        using var about = new AboutDialog(Icon);
+        about.ShowDialog(this);
+    }
+
     void ShowMain()
     {
         Show();
@@ -444,7 +454,8 @@ public class MainForm : Form
         menu.Items.AddRange(new ToolStripItem[]
         {
             open, trayWidgetItem, new ToolStripSeparator(), trayStartItem, traySaveItem,
-            new ToolStripSeparator(), new ToolStripMenuItem("Exit", null, (_, _) => { ShowMain(); Close(); })
+            new ToolStripSeparator(), new ToolStripMenuItem("About Ticket Timer", null, (_, _) => { ShowMain(); ShowAbout(); }),
+            new ToolStripMenuItem("Exit", null, (_, _) => { ShowMain(); Close(); })
         });
         tray.ContextMenuStrip = menu;
         tray.DoubleClick += (_, _) => ShowMain();
