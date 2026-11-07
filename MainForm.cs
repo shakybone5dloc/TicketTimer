@@ -32,7 +32,7 @@ public class MainForm : Form
     readonly ThemedListView log = new() { Dock = DockStyle.Fill, FillColumn = 1 };
     readonly Label logHeader = new()
     {
-        Text = "Logged time  ·  double-click a row to keep working on it, Delete removes it",
+        Text = "Logged time  ·  double-click a row to start timing that ticket again, Delete removes it",
         AutoSize = true, Margin = new Padding(3, 14, 3, 6)
     };
     readonly Label totalsLabel = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true };
@@ -332,17 +332,31 @@ public class MainForm : Form
             : $"This ticket: {Format(Sum(forTicket))} · {Money(forTicket.Sum(e => e.Earned))}    {all}";
     }
 
+    /// <summary>Double-click on a log row: start timing that ticket again.</summary>
     void ContinueSelected()
     {
         if (log.SelectedItems.Count == 0 || log.SelectedItems[0].Tag is not TimeEntry e) return;
+
         if (HasSession)
         {
-            MessageBox.Show("Save or discard the current timer first.", Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
+            var sameTicket = string.Equals(ticketBox.Text.Trim(), e.Ticket, StringComparison.OrdinalIgnoreCase);
+            if (sameTicket)
+            {
+                if (!stopwatch.IsRunning) ToggleRunning(); // paused → resume
+                return;
+            }
+            var answer = MessageBox.Show(
+                $"You're timing \"{ticketBox.Text.Trim()}\" ({Format(stopwatch.Elapsed)}).\n\n" +
+                $"Save that time and start \"{e.Ticket}\"?",
+                Text, MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+            if (answer != DialogResult.OK) return;
+            SaveSession();
+            if (HasSession) return; // save was blocked (bad ticket name or rate)
         }
+
         ticketBox.Text = e.Ticket;
         rateBox.Text = e.HourlyRate.ToString("0.00");
-        startButton.Focus();
+        ToggleRunning();
     }
 
     void DeleteSelected()
