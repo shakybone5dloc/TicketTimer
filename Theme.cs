@@ -95,6 +95,16 @@ public static class Theme
         DwmSetWindowAttribute(form.Handle, 36, ref text, sizeof(int));    // caption text color (Windows 11)
     }
 
+    /// <summary>Rounded corners and a theme-colored border for a borderless window (Windows 11).</summary>
+    public static void ApplyPopupChrome(Form form, Palette p)
+    {
+        if (!form.IsHandleCreated) return;
+        var round = 2; // DWMWCP_ROUND
+        var border = ColorRef(p.OutlineVariant);
+        DwmSetWindowAttribute(form.Handle, 33, ref round, sizeof(int));  // corner preference
+        DwmSetWindowAttribute(form.Handle, 34, ref border, sizeof(int)); // border color
+    }
+
     public static void ApplyNativeTheme(ListView list, Palette p)
     {
         if (!list.IsHandleCreated) return;

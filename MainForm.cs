@@ -11,6 +11,21 @@ public class MainForm : Form
     readonly Stopwatch stopwatch = new();
     readonly System.Windows.Forms.Timer tick = new() { Interval = 250 };
     DateTime? sessionStarted;
+    TimeEntry? continuing;            // the logged entry being resumed, if any
+    TimeSpan baseTime;                // time already on the clock before the stopwatch (resumed entry or "Set time")
+
+    /// <summary>Time shown on the clock: the starting amount plus the time counted now.</summary>
+    TimeSpan Elapsed => baseTime + stopwatch.Elapsed;
+
+    /// <summary>Time that would be lost by discarding: all of it, or for a resumed entry what's beyond its saved time.</summary>
+    TimeSpan UnsavedTime
+    {
+        get
+        {
+            var unsaved = continuing != null ? Elapsed - continuing.Duration : Elapsed;
+            return unsaved < TimeSpan.Zero ? TimeSpan.Zero : unsaved;
+        }
+    }
 
     readonly TextBox ticketBox = new() { PlaceholderText = "e.g. JIRA-1234 Fix login bug" };
     readonly TextBox rateBox = new() { TextAlign = HorizontalAlignment.Right };
@@ -32,12 +47,21 @@ public class MainForm : Form
     readonly ThemedListView log = new() { Dock = DockStyle.Fill, FillColumn = 1 };
     readonly Label logHeader = new()
     {
-        Text = "Logged time  ·  double-click a row to start timing that ticket again, Delete removes it",
+        Text = "Logged time  ·  double-click a row to continue its timer, Delete removes it",
         AutoSize = true, Margin = new Padding(3, 14, 3, 6)
     };
     readonly Label totalsLabel = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true };
     readonly RoundButton onTopButton = new() { Text = "Keep on top", AutoSize = true, Kind = ButtonKind.Outlined };
     readonly Dictionary<string, RoundButton> themeButtons = new();
+    readonly RoundButton setTimeButton = new() { Text = "Set time…", AutoSize = true, Kind = ButtonKind.Text };
+    readonly RoundButton widgetButton =new() { Text = "Mini widget", AutoSize = true, Kind = ButtonKind.Outlined };
+    MiniWidget? widget;
+    bool exiting;
+
+    readonly NotifyIcon tray = new() { Text = "Ticket Timer" };
+    readonly ToolStripMenuItem trayWidgetItem = new("Mini widget");
+    readonly ToolStripMenuItem trayStartItem = new("Start");
+    readonly ToolStripMenuItem traySaveItem = new("Stop && Save");
 
     public MainForm()
     {
@@ -73,6 +97,9 @@ public class MainForm : Form
         log.DoubleClick += (_, _) => ContinueSelected();
         log.KeyDown += (_, e) => { if (e.KeyCode == Keys.Delete) DeleteSelected(); };
         SystemEvents.UserPreferenceChanged += OnSystemPreferenceChanged;
+        widgetButton.Click += (_, _) => ToggleWidget();
+        setTimeButton.Click += (_, _) => SetTime();
+        BuildTray();
 
         ApplyTheme();
         RefreshLog();
@@ -103,8 +130,12 @@ public class MainForm : Form
         var topBar = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, Margin = new Padding(0, 0, 0, 8) };
         topBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         topBar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        onTopButton.Anchor = AnchorStyles.Left;
-        topBar.Controls.Add(onTopButton, 0, 0);
+        var leftButtons = new FlowLayoutPanel { AutoSize = true, Anchor = AnchorStyles.Left, WrapContents = false, Margin = Padding.Empty };
+        onTopButton.Margin = new Padding(0, 0, 6, 0);
+        widgetButton.Margin = Padding.Empty;
+        leftButtons.Controls.Add(onTopButton);
+        leftButtons.Controls.Add(widgetButton);
+        topBar.Controls.Add(leftButtons, 0, 0);
         topBar.Controls.Add(themeSwitch, 1, 0);
 
         var inputs = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2 };
@@ -143,7 +174,19 @@ public class MainForm : Form
         root.Controls.Add(topBar, 0, 0);
         root.Controls.Add(inputs, 0, 1);
         root.Controls.Add(timeLabel, 0, 2);
-        root.Controls.Add(earnedLabel, 0, 3);
+        // Earned stays centered; "Set time…" sits to its right
+        var earnedRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, Margin = Padding.Empty };
+        earnedRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        earnedRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        earnedRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        earnedLabel.Dock = DockStyle.None;
+        earnedLabel.AutoSize = true;
+        earnedLabel.Anchor = AnchorStyles.None;
+        setTimeButton.Anchor = AnchorStyles.Left;
+        setTimeButton.Margin = new Padding(12, 0, 0, 0);
+        earnedRow.Controls.Add(earnedLabel, 1, 0);
+        earnedRow.Controls.Add(setTimeButton, 2, 0);
+        root.Controls.Add(earnedRow, 0, 3);
         root.Controls.Add(buttons, 0, 4);
         root.Controls.Add(logHeader, 0, 5);
         root.Controls.Add(logCard, 0, 6);
@@ -182,6 +225,7 @@ public class MainForm : Form
 
         Theme.ApplyTitleBar(this, p);
         Theme.ApplyNativeTheme(log, p);
+        widget?.ApplyTheme();
         RefreshTimer();
         Invalidate(true);
     }
@@ -254,13 +298,23 @@ public class MainForm : Form
         if (!HasSession || !CheckInputs()) return;
         stopwatch.Stop();
         TryGetRate(out var rate);
-        store.Entries.Add(new TimeEntry
+        if (continuing != null && store.Entries.Contains(continuing))
         {
-            Ticket = ticketBox.Text.Trim(),
-            Started = sessionStarted!.Value,
-            Seconds = Math.Round(stopwatch.Elapsed.TotalSeconds),
-            HourlyRate = rate
-        });
+            // Resumed entry: update it in place with the new total
+            continuing.Ticket = ticketBox.Text.Trim();
+            continuing.Seconds = Math.Round(Elapsed.TotalSeconds);
+            continuing.HourlyRate = rate;
+        }
+        else
+        {
+            store.Entries.Add(new TimeEntry
+            {
+                Ticket = ticketBox.Text.Trim(),
+                Started = sessionStarted!.Value,
+                Seconds = Math.Round(Elapsed.TotalSeconds),
+                HourlyRate = rate
+            });
+        }
         ResetSession();
         Persist();
         RefreshLog();
@@ -271,11 +325,33 @@ public class MainForm : Form
         if (!HasSession) return;
         var wasRunning = stopwatch.IsRunning;
         stopwatch.Stop();
-        if (MessageBox.Show($"Throw away {Format(stopwatch.Elapsed)} without saving?", Text,
+        var question = continuing != null
+            ? $"Throw away the {Format(UnsavedTime)} added since you resumed? The entry keeps its {Format(continuing.Duration)}."
+            : $"Throw away {Format(Elapsed)} without saving?";
+        if (MessageBox.Show(question, Text,
                 MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
             ResetSession();
         else if (wasRunning)
             stopwatch.Start();
+        RefreshTimer();
+    }
+
+    /// <summary>
+    /// "Set time…": say when you really started or how long you've worked. With no timer going it
+    /// starts one from that point; a running timer keeps running from the new time; a paused one stays paused.
+    /// </summary>
+    void SetTime()
+    {
+        if (!HasSession && !CheckInputs()) return;
+        using var dialog = new SetTimeDialog(Elapsed, Icon);
+        var owner = widget is { Visible: true } && WindowState == FormWindowState.Minimized ? (IWin32Window)widget : this;
+        if (dialog.ShowDialog(owner) != DialogResult.OK) return;
+
+        var start = !HasSession || stopwatch.IsRunning;
+        stopwatch.Reset();
+        baseTime = dialog.Elapsed;
+        if (continuing == null) sessionStarted = dialog.Started; // a resumed entry keeps its original date
+        if (start) { stopwatch.Start(); tick.Start(); }
         RefreshTimer();
     }
 
@@ -284,6 +360,8 @@ public class MainForm : Form
         tick.Stop();
         stopwatch.Reset();
         sessionStarted = null;
+        continuing = null;
+        baseTime = TimeSpan.Zero;
         RefreshTimer();
     }
 
@@ -293,7 +371,7 @@ public class MainForm : Form
         var rateOk = TryGetRate(out var rate);
         rateField.Error = !rateOk;
 
-        var elapsed = stopwatch.Elapsed;
+        var elapsed = Elapsed;
         timeLabel.Text = Format(elapsed);
         earnedLabel.Text = Money((decimal)elapsed.TotalHours * (rateOk ? rate : 0));
         timeLabel.ForeColor = stopwatch.IsRunning ? p.Primary : HasSession ? p.Warning : p.Muted;
@@ -301,6 +379,82 @@ public class MainForm : Form
         startButton.Text = stopwatch.IsRunning ? "Pause" : HasSession ? "Resume" : "Start";
         saveButton.Enabled = discardButton.Enabled = HasSession;
         Text = HasSession ? $"{Format(elapsed)} – {ticketBox.Text.Trim()} – Ticket Timer" : "Ticket Timer";
+
+        var earned = (decimal)elapsed.TotalHours * (rateOk ? rate : 0);
+        widget?.ShowState(new WidgetState(ticketBox.Text.Trim(), elapsed, earned, stopwatch.IsRunning, HasSession));
+        trayStartItem.Text = startButton.Text;
+        traySaveItem.Enabled = HasSession;
+        var tip = HasSession ? $"{Format(elapsed)} – {ticketBox.Text.Trim()}" : "Ticket Timer";
+        tray.Text = tip.Length > 120 ? tip[..120] : tip;
+    }
+
+    // ---------- Mini widget and tray ----------
+
+    void ToggleWidget()
+    {
+        if (widget != null) { widget.Close(); return; }
+        OpenWidget();
+        WindowState = FormWindowState.Minimized;
+    }
+
+    void OpenWidget()
+    {
+        if (widget != null) return;
+        widget = new MiniWidget(Icon, store.WidgetOnTop);
+        widget.ToggleRequested += ToggleRunning;
+        widget.SaveRequested += SaveSession;
+        widget.OpenMainRequested += ShowMain;
+        widget.SetTimeRequested += SetTime;
+        widget.OnTopChanged += () => { store.WidgetOnTop = widget?.KeepOnTop ?? true; Persist(); };
+        widget.LocationChanged += (_, _) =>
+        {
+            if (widget is { Visible: true }) { store.WidgetX = widget.Left; store.WidgetY = widget.Top; }
+        };
+        widget.FormClosed += (_, _) =>
+        {
+            widget = null;
+            widgetButton.Kind = ButtonKind.Outlined;
+            trayWidgetItem.Checked = false;
+            if (!exiting) { store.WidgetOpen = false; Persist(); }
+        };
+        widget.PlaceAt(store.WidgetX, store.WidgetY);
+        widget.Show();
+        store.WidgetOpen = true;
+        widgetButton.Kind = ButtonKind.Tonal;
+        trayWidgetItem.Checked = true;
+        RefreshTimer();
+        Persist();
+    }
+
+    void ShowMain()
+    {
+        Show();
+        if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+        Activate();
+    }
+
+    void BuildTray()
+    {
+        tray.Icon = Icon;
+        var menu = new ContextMenuStrip();
+        var open = new ToolStripMenuItem("Open Ticket Timer", null, (_, _) => ShowMain()) { Font = new Font(menu.Font, FontStyle.Bold) };
+        trayWidgetItem.Click += (_, _) => { if (widget != null) widget.Close(); else OpenWidget(); };
+        trayStartItem.Click += (_, _) => ToggleRunning();
+        traySaveItem.Click += (_, _) => SaveSession();
+        menu.Items.AddRange(new ToolStripItem[]
+        {
+            open, trayWidgetItem, new ToolStripSeparator(), trayStartItem, traySaveItem,
+            new ToolStripSeparator(), new ToolStripMenuItem("Exit", null, (_, _) => { ShowMain(); Close(); })
+        });
+        tray.ContextMenuStrip = menu;
+        tray.DoubleClick += (_, _) => ShowMain();
+        tray.Visible = true;
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        if (store.WidgetOpen) OpenWidget();
     }
 
     // ---------- Log ----------
@@ -332,22 +486,24 @@ public class MainForm : Form
             : $"This ticket: {Format(Sum(forTicket))} · {Money(forTicket.Sum(e => e.Earned))}    {all}";
     }
 
-    /// <summary>Double-click on a log row: start timing that ticket again.</summary>
+    /// <summary>
+    /// Double-click on a log row: resume that entry. The clock starts from its saved time,
+    /// and Stop &amp; Save updates the same row instead of adding a new one.
+    /// </summary>
     void ContinueSelected()
     {
         if (log.SelectedItems.Count == 0 || log.SelectedItems[0].Tag is not TimeEntry e) return;
 
         if (HasSession)
         {
-            var sameTicket = string.Equals(ticketBox.Text.Trim(), e.Ticket, StringComparison.OrdinalIgnoreCase);
-            if (sameTicket)
+            if (ReferenceEquals(continuing, e))
             {
-                if (!stopwatch.IsRunning) ToggleRunning(); // paused → resume
+                if (!stopwatch.IsRunning) ToggleRunning(); // already resumed and paused → keep going
                 return;
             }
             var answer = MessageBox.Show(
-                $"You're timing \"{ticketBox.Text.Trim()}\" ({Format(stopwatch.Elapsed)}).\n\n" +
-                $"Save that time and start \"{e.Ticket}\"?",
+                $"You're timing \"{ticketBox.Text.Trim()}\" ({Format(Elapsed)}).\n\n" +
+                $"Save that time and continue \"{e.Ticket}\" from {Format(e.Duration)}?",
                 Text, MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
             if (answer != DialogResult.OK) return;
             SaveSession();
@@ -356,13 +512,23 @@ public class MainForm : Form
 
         ticketBox.Text = e.Ticket;
         rateBox.Text = e.HourlyRate.ToString("0.00");
+        continuing = e;
+        baseTime = e.Duration;
+        sessionStarted = e.Started;
         ToggleRunning();
+        if (!stopwatch.IsRunning) ResetSession(); // couldn't start (bad input) → don't leave it half-resumed
     }
 
     void DeleteSelected()
     {
         var picked = log.SelectedItems.Cast<ListViewItem>().Select(i => (TimeEntry)i.Tag!).ToList();
         if (picked.Count == 0) return;
+        if (continuing != null && picked.Contains(continuing))
+        {
+            MessageBox.Show("That entry is being timed right now. Save or discard the timer first.", Text,
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
         var what = picked.Count == 1 ? "this entry" : $"these {picked.Count} entries";
         if (MessageBox.Show($"Delete {what}?", Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
             return;
@@ -401,7 +567,7 @@ public class MainForm : Form
     {
         if (HasSession)
         {
-            var answer = MessageBox.Show($"You have {Format(stopwatch.Elapsed)} not saved on \"{ticketBox.Text.Trim()}\". Save it before closing?",
+            var answer = MessageBox.Show($"You have {Format(UnsavedTime)} not saved on \"{ticketBox.Text.Trim()}\". Save it before closing?",
                 Text, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
             if (answer == DialogResult.Cancel) { e.Cancel = true; return; }
             if (answer == DialogResult.Yes) SaveSession();
@@ -414,6 +580,11 @@ public class MainForm : Form
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         SystemEvents.UserPreferenceChanged -= OnSystemPreferenceChanged;
+        exiting = true;   // keep "widget open" saved so it comes back next launch
+        widget?.Close();
+        Persist();        // saves the widget's last position
+        tray.Visible = false;
+        tray.Dispose();
         base.OnFormClosed(e);
     }
 

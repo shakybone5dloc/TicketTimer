@@ -21,8 +21,14 @@ public class Store
     public string LastTicket { get; set; } = "";
     public decimal LastRate { get; set; } = 50m;
     public string ThemeMode { get; set; } = Theme.System;
+    public bool WidgetOpen { get; set; }
+    public bool WidgetOnTop { get; set; } = true;
+    public int? WidgetX { get; set; }
+    public int? WidgetY { get; set; }
 
+    // TICKETTIMER_DATA lets a test run (or a second profile) use its own folder
     static readonly string Folder =
+        Environment.GetEnvironmentVariable("TICKETTIMER_DATA") is { Length: > 0 } custom ? custom :
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TicketTimer");
     static readonly string FilePath = Path.Combine(Folder, "data.json");
     static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
