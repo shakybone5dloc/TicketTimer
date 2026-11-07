@@ -242,28 +242,54 @@ public class ThemedListView : ListView
                 Align(e.Header.TextAlign));
     }
 
-    // Draw the whole row here; Windows sometimes repaints a row with only this event (e.g. on hover).
+    // Windows paints its own (themed) selection highlight between the item and sub-item steps,
+    // so each cell is drawn again in OnDrawSubItem, after that highlight, to cover it.
+    // The whole row is still drawn here too, because Windows sometimes repaints a row with
+    // only this event (e.g. on hover).
     protected override void OnDrawItem(DrawListViewItemEventArgs e)
     {
-        var p = Theme.Current;
-        var back = e.Item.Selected ? p.PrimaryContainer : p.Surface;
-        var fore = e.Item.Selected ? p.OnPrimaryContainer : p.OnSurface;
         var row = new Rectangle(0, e.Bounds.Y, ClientSize.Width, e.Bounds.Height);
-        using (var brush = new SolidBrush(back)) e.Graphics.FillRectangle(brush, row);
-
+        FillCell(e.Graphics, e.Item, row);
         for (var i = 0; i < e.Item.SubItems.Count && i < Columns.Count; i++)
-        {
-            var bounds = e.Item.SubItems[i].Bounds;
-            if (i == 0) bounds.Width = Columns[0].Width; // sub-item 0 reports the whole row
-            TextRenderer.DrawText(e.Graphics, e.Item.SubItems[i].Text, Font, Inset(bounds), fore, back,
-                Align(Columns[i].TextAlign));
-        }
-
-        using var pen = new Pen(p.OutlineVariant);
-        e.Graphics.DrawLine(pen, row.Left, row.Bottom - 1, row.Right, row.Bottom - 1);
+            DrawCell(e.Graphics, e.Item, i, CellBounds(e.Item, i));
     }
 
-    protected override void OnDrawSubItem(DrawListViewSubItemEventArgs e) => e.DrawDefault = false;
+    protected override void OnDrawSubItem(DrawListViewSubItemEventArgs e)
+    {
+        e.DrawDefault = false;
+        if (e.Item == null) return;
+        var bounds = CellBounds(e.Item, e.ColumnIndex);
+        // The last column also covers any space to the right edge of the list
+        if (e.ColumnIndex == Columns.Count - 1) bounds.Width = Math.Max(bounds.Width, ClientSize.Width - bounds.X);
+        FillCell(e.Graphics, e.Item, bounds);
+        DrawCell(e.Graphics, e.Item, e.ColumnIndex, bounds);
+    }
+
+    Rectangle CellBounds(ListViewItem item, int column)
+    {
+        var bounds = item.SubItems[column].Bounds;
+        if (column == 0) bounds.Width = Columns[0].Width; // sub-item 0 reports the whole row
+        return bounds;
+    }
+
+    void FillCell(Graphics g, ListViewItem item, Rectangle bounds)
+    {
+        var p = Theme.Current;
+        using (var brush = new SolidBrush(item.Selected ? p.PrimaryContainer : p.Surface))
+            g.FillRectangle(brush, bounds);
+        using var pen = new Pen(p.OutlineVariant);
+        g.DrawLine(pen, bounds.Left, bounds.Bottom - 1, bounds.Right, bounds.Bottom - 1);
+    }
+
+    void DrawCell(Graphics g, ListViewItem item, int column, Rectangle bounds)
+    {
+        if (column >= item.SubItems.Count || column >= Columns.Count) return;
+        var p = Theme.Current;
+        var back = item.Selected ? p.PrimaryContainer : p.Surface;
+        var fore = item.Selected ? p.OnPrimaryContainer : p.OnSurface;
+        var text = new Rectangle(bounds.X, bounds.Y, bounds.Width, bounds.Height - 1);
+        TextRenderer.DrawText(g, item.SubItems[column].Text, Font, Inset(text), fore, back, Align(Columns[column].TextAlign));
+    }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
