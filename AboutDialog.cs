@@ -5,7 +5,7 @@ namespace TicketTimer;
 public static class AppInfo
 {
     public const string Name = "Ticket Timer";
-    public const string SupportUrl = "https://ko-fi.com/shakybone5dloc";
+    public const string SupportUrl = "https://ko-fi.com/E1M12A8W81";
     public const string RepoUrl = "https://github.com/shakybone5dloc/TicketTimer";
 
     /// <summary>Version from the project file, without any "+commit" suffix.</summary>

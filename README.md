@@ -30,6 +30,8 @@ This produces `publish\TicketTimer.exe`. To regenerate the app icon after changi
 
 ## Support
 
-Ticket Timer is free and always will be. If it saves you some time and you'd like to say thanks, you can [buy me a coffee on Ko-fi](https://ko-fi.com/shakybone5dloc) ☕. It's appreciated, never expected.
+Ticket Timer is free and always will be. If it saves you some time and you'd like to say thanks, you can buy me a coffee on Ko-fi. It's appreciated, never expected.
+
+<a href='https://ko-fi.com/E1M12A8W81' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi1.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
 
 Found a bug or have an idea? [Open an issue](https://github.com/shakybone5dloc/TicketTimer/issues).
