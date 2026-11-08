@@ -23,6 +23,7 @@
   <ItemGroup>
     <!-- Also embedded so the window can load every size (the exe icon alone gives Windows only 32px) -->
     <EmbeddedResource Include="app.ico" LogicalName="TicketTimer.app.ico" />
+    <EmbeddedResource Include="kofi-button.png" LogicalName="TicketTimer.kofi-button.png" />
   </ItemGroup>
 
 </Project>

@@ -55,7 +55,7 @@ public class AboutDialog : Form
             AutoSize = true, Margin = new Padding(2, 0, 0, 14)
         };
 
-        var coffee = new RoundButton { Text = "☕  Buy me a coffee", AutoSize = true, Kind = ButtonKind.Filled, Margin = new Padding(0, 0, 6, 0) };
+        var coffee = KofiButton();
         var github = new RoundButton { Text = "GitHub", AutoSize = true, Kind = ButtonKind.Outlined, Margin = new Padding(0, 0, 6, 0) };
         var close = new RoundButton { Text = "Close", AutoSize = true, Kind = ButtonKind.Text, Margin = Padding.Empty };
         coffee.Click += (_, _) => AppInfo.Open(AppInfo.SupportUrl);
@@ -73,6 +73,34 @@ public class AboutDialog : Form
         root.Controls.Add(picture);
         root.Controls.Add(text);
         Controls.Add(root);
+    }
+
+    /// <summary>Ko-fi's own "Buy me a coffee" image, 36px tall like on the web, as a clickable link.</summary>
+    private Control KofiButton()
+    {
+        int height = (int)Math.Round(36 * DeviceDpi / 96.0);
+        var box = new PictureBox
+        {
+            Cursor = Cursors.Hand, AccessibleName = "Buy me a coffee on Ko-fi", AccessibleRole = AccessibleRole.Link,
+            Margin = new Padding(0, 2, 10, 0), BackColor = Color.Transparent
+        };
+        using var stream = typeof(AboutDialog).Assembly.GetManifestResourceStream("TicketTimer.kofi-button.png");
+        if (stream != null)
+        {
+            // Scale the high-res source down once with a good filter, so the text stays crisp.
+            using var source = new Bitmap(stream);
+            var scaled = new Bitmap((int)Math.Round(source.Width * height / (double)source.Height), height);
+            using (var g = Graphics.FromImage(scaled))
+            {
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                g.DrawImage(source, new Rectangle(Point.Empty, scaled.Size));
+            }
+            box.Image = scaled;
+            box.Size = scaled.Size;
+        }
+        new ToolTip().SetToolTip(box, "ko-fi.com — opens in your browser");
+        return box;
     }
 
     protected override void OnHandleCreated(EventArgs e)
