@@ -47,7 +47,7 @@ public class MainForm : Form
     readonly ThemedListView log = new() { Dock = DockStyle.Fill, FillColumn = 1 };
     readonly Label logHeader = new()
     {
-        Text = "Logged time  ·  double-click a row to continue its timer, Delete removes it",
+        Text = "Logged time  ·  double-click a row to continue it, right-click to start a new session",
         AutoSize = true, Margin = new Padding(3, 14, 3, 6)
     };
     readonly Label totalsLabel = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true };
@@ -88,7 +88,7 @@ public class MainForm : Form
         discardButton.Click += (_, _) => DiscardSession();
         rateBox.TextChanged += (_, _) => RefreshTimer();
         rateBox.Leave += (_, _) => { if (TryGetRate(out var r)) rateBox.Text = r.ToString("0.00"); };
-        ticketBox.TextChanged += (_, _) => { RefreshTotals(); RefreshTimer(); };
+        ticketBox.TextChanged += (_, _) => RefreshTimer();
         onTopButton.Click += (_, _) =>
         {
             TopMost = !TopMost;
@@ -96,6 +96,8 @@ public class MainForm : Form
         };
         log.DoubleClick += (_, _) => ContinueSelected();
         log.KeyDown += (_, e) => { if (e.KeyCode == Keys.Delete) DeleteSelected(); };
+        log.ContextMenuStrip = BuildLogMenu();
+        Activated += (_, _) => RefreshTotals(); // a new week may have started while the app was open
         SystemEvents.UserPreferenceChanged += OnSystemPreferenceChanged;
         widgetButton.Click += (_, _) => ToggleWidget();
         setTimeButton.Click += (_, _) => SetTime();
@@ -490,11 +492,12 @@ public class MainForm : Form
 
     void RefreshTotals()
     {
-        var name = ticketBox.Text.Trim();
-        var forTicket = store.Entries.Where(e => string.Equals(e.Ticket, name, StringComparison.OrdinalIgnoreCase)).ToList();
-        var all = $"All: {Format(Sum(store.Entries))} · {Money(store.Entries.Sum(e => e.Earned))}";
-        totalsLabel.Text = forTicket.Count == 0 ? all
-            : $"This ticket: {Format(Sum(forTicket))} · {Money(forTicket.Sum(e => e.Earned))}    {all}";
+        // The week runs Sunday through Saturday
+        var weekStart = DateTime.Today.AddDays(-(int)DateTime.Today.DayOfWeek);
+        var thisWeek = store.Entries.Where(e => e.Started >= weekStart && e.Started < weekStart.AddDays(7)).ToList();
+        totalsLabel.Text =
+            $"This week: {Format(Sum(thisWeek))} · {Money(thisWeek.Sum(e => e.Earned))}    " +
+            $"All: {Format(Sum(store.Entries))} · {Money(store.Entries.Sum(e => e.Earned))}";
     }
 
     /// <summary>
@@ -528,6 +531,53 @@ public class MainForm : Form
         sessionStarted = e.Started;
         ToggleRunning();
         if (!stopwatch.IsRunning) ResetSession(); // couldn't start (bad input) → don't leave it half-resumed
+    }
+
+    /// <summary>Right-click menu for log rows: start fresh on that ticket, continue it, or delete.</summary>
+    ContextMenuStrip BuildLogMenu()
+    {
+        var menu = new ContextMenuStrip();
+        var startNew = new ToolStripMenuItem("Start new session", null, (_, _) => StartNewFromSelected())
+            { Font = new Font(menu.Font, FontStyle.Bold) };
+        var resume = new ToolStripMenuItem("Continue this entry", null, (_, _) => ContinueSelected());
+        var delete = new ToolStripMenuItem("Delete", null, (_, _) => DeleteSelected()) { ShortcutKeyDisplayString = "Del" };
+        menu.Items.AddRange(new ToolStripItem[] { startNew, resume, new ToolStripSeparator(), delete });
+        menu.Opening += (_, e) =>
+        {
+            var count = log.SelectedItems.Count;
+            if (count == 0) { e.Cancel = true; return; } // right-click on empty space
+            var one = count == 1 && log.SelectedItems[0].Tag is TimeEntry;
+            startNew.Enabled = resume.Enabled = one;
+            startNew.Text = one ? $"Start new session for \"{Shorten(((TimeEntry)log.SelectedItems[0].Tag!).Ticket)}\"" : "Start new session";
+            delete.Text = count == 1 ? "Delete" : $"Delete {count} entries";
+        };
+        return menu;
+
+        static string Shorten(string s) => s.Length > 40 ? s[..39] + "…" : s;
+    }
+
+    /// <summary>
+    /// Right-click → Start new session: fill in that row's ticket and rate and start a fresh clock
+    /// at 0. Unlike double-click, saving adds a new entry and leaves the old one as it was.
+    /// </summary>
+    void StartNewFromSelected()
+    {
+        if (log.SelectedItems.Count != 1 || log.SelectedItems[0].Tag is not TimeEntry e) return;
+
+        if (HasSession)
+        {
+            var answer = MessageBox.Show(
+                $"You're timing \"{ticketBox.Text.Trim()}\" ({Format(Elapsed)}).\n\n" +
+                $"Save that time and start a new session for \"{e.Ticket}\"?",
+                Text, MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+            if (answer != DialogResult.OK) return;
+            SaveSession();
+            if (HasSession) return; // save was blocked (bad ticket name or rate)
+        }
+
+        ticketBox.Text = e.Ticket;
+        rateBox.Text = e.HourlyRate.ToString("0.00");
+        ToggleRunning();
     }
 
     void DeleteSelected()

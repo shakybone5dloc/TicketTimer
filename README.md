@@ -5,8 +5,8 @@ A small, free Windows app for tracking how long you spend on each ticket and wha
 ## Features
 
 - **Time a ticket:** enter a ticket name and your hourly rate, then start, pause and save. The clock shows the time and what you've earned as it runs.
-- **Log with totals:** every saved session is listed, with totals for the current ticket and for everything. Export it all to CSV.
-- **Continue where you left off:** double-click a logged entry to keep timing it from its saved time. Saving updates that entry.
+- **Log with totals:** every saved session is listed, with totals for this week (Sunday to Saturday) and for everything. Export it all to CSV.
+- **Continue where you left off:** double-click a logged entry to keep timing it from its saved time. Saving updates that entry. Or right-click it and choose **Start new session** to start a fresh clock with the same ticket and rate.
 - **Set time:** forgot to start the timer? Enter when you actually started (`9:15 am`) or how long you've already worked (`1h 30m`).
 - **Mini widget:** a small floating card with the live timer and play/pause and save buttons. Drag it anywhere and keep it on top.
 - **Tray icon:** hover to see the running time, or use its menu to start, pause or save.
